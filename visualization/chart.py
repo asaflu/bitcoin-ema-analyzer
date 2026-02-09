@@ -510,64 +510,103 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
         row=2, col=1
     )
 
-    # 3. EMA Slope with conditional coloring
+    # 3. EMA Slope - Single continuous line with dynamic coloring (Pine Script style)
     if 'slope' in df.columns:
-        # Create separate traces for each zone with different colors and fills
+        # Calculate colors based on Pine Script logic
+        # Color changes based on slope position and momentum
+        line_colors = []
+        fill_colors = []
 
-        # Bullish zone (slope > NTZ): Bright green with green background
-        bullish_mask = df['slope'] > ntz_threshold
-        if bullish_mask.any():
-            bullish_dates = dates[bullish_mask]
-            bullish_slope = df['slope'][bullish_mask]
+        for i in range(len(df)):
+            slope = df['slope'].iloc[i]
+            prev_slope = df['slope'].iloc[i-1] if i > 0 else slope
 
+            if pd.isna(slope):
+                line_colors.append('rgba(186, 167, 167, 0.7)')  # NTZ gray
+                fill_colors.append('rgba(186, 167, 167, 0.3)')
+            elif slope > ntz_threshold:
+                # Bullish zone
+                if slope > prev_slope:
+                    # Accelerating up - bright green
+                    line_colors.append('rgba(38, 255, 52, 1)')  # cUPb
+                    fill_colors.append('rgba(38, 255, 52, 0.4)')
+                else:
+                    # Decelerating - green
+                    line_colors.append('rgba(38, 255, 72, 1)')  # cUP
+                    fill_colors.append('rgba(38, 255, 72, 0.5)')
+            elif slope < -ntz_threshold:
+                # Bearish zone
+                if slope <= prev_slope:
+                    # Accelerating down - bright red
+                    line_colors.append('rgba(229, 18, 18, 1)')  # cLPb
+                    fill_colors.append('rgba(229, 18, 18, 0.4)')
+                else:
+                    # Decelerating - red
+                    line_colors.append('rgba(255, 20, 20, 1)')  # cLP
+                    fill_colors.append('rgba(255, 20, 20, 0.4)')
+            else:
+                # In NTZ - gray/black
+                line_colors.append('rgba(186, 167, 167, 0.7)')  # cNTZ
+                fill_colors.append('rgba(186, 167, 167, 0.3)')
+
+        # Plot filled area first (background)
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=df['slope'],
+                name='Slope Fill',
+                fill='tozeroy',
+                fillcolor='rgba(186, 167, 167, 0.2)',
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo='skip'
+            ),
+            row=3, col=1
+        )
+
+        # Plot the main slope line with segment coloring
+        # Split into segments for color changes
+        segments = []
+        current_segment_x = [dates.iloc[0]]
+        current_segment_y = [df['slope'].iloc[0]]
+        current_color = line_colors[0]
+
+        for i in range(1, len(df)):
+            if line_colors[i] != current_color:
+                # Color changed - finish current segment
+                current_segment_x.append(dates.iloc[i])
+                current_segment_y.append(df['slope'].iloc[i])
+                segments.append({
+                    'x': current_segment_x,
+                    'y': current_segment_y,
+                    'color': current_color
+                })
+                # Start new segment
+                current_segment_x = [dates.iloc[i]]
+                current_segment_y = [df['slope'].iloc[i]]
+                current_color = line_colors[i]
+            else:
+                current_segment_x.append(dates.iloc[i])
+                current_segment_y.append(df['slope'].iloc[i])
+
+        # Add final segment
+        segments.append({
+            'x': current_segment_x,
+            'y': current_segment_y,
+            'color': current_color
+        })
+
+        # Plot each segment
+        for idx, segment in enumerate(segments):
             fig.add_trace(
                 go.Scatter(
-                    x=bullish_dates,
-                    y=bullish_slope,
-                    name='Bullish',
-                    line=dict(color='#00ff00', width=3),  # Bright green
-                    fill='tozeroy',
-                    fillcolor='rgba(0, 255, 0, 0.2)',  # Green shadow
+                    x=segment['x'],
+                    y=segment['y'],
+                    name='Slope' if idx == 0 else None,
+                    line=dict(color=segment['color'], width=2.5),
                     mode='lines',
-                    showlegend=True
-                ),
-                row=3, col=1
-            )
-
-        # Bearish zone (slope < -NTZ): Bright red with red background
-        bearish_mask = df['slope'] < -ntz_threshold
-        if bearish_mask.any():
-            bearish_dates = dates[bearish_mask]
-            bearish_slope = df['slope'][bearish_mask]
-
-            fig.add_trace(
-                go.Scatter(
-                    x=bearish_dates,
-                    y=bearish_slope,
-                    name='Bearish',
-                    line=dict(color='#ff0000', width=3),  # Bright red
-                    fill='tozeroy',
-                    fillcolor='rgba(255, 0, 0, 0.2)',  # Red shadow
-                    mode='lines',
-                    showlegend=True
-                ),
-                row=3, col=1
-            )
-
-        # No Trade Zone: Black line
-        ntz_mask = (df['slope'] >= -ntz_threshold) & (df['slope'] <= ntz_threshold)
-        if ntz_mask.any():
-            ntz_dates = dates[ntz_mask]
-            ntz_slope = df['slope'][ntz_mask]
-
-            fig.add_trace(
-                go.Scatter(
-                    x=ntz_dates,
-                    y=ntz_slope,
-                    name='No Trade Zone',
-                    line=dict(color='#000000', width=2),  # Black
-                    mode='lines',
-                    showlegend=True
+                    showlegend=idx == 0,
+                    hovertemplate='Slope: %{y:.2f}<extra></extra>'
                 ),
                 row=3, col=1
             )
