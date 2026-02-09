@@ -303,6 +303,7 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
 
         # Match trades and calculate PnL
         trades = []
+        trade_counter = 0
         current_long = None
         current_short = None
 
@@ -320,9 +321,11 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
                     'entry_slope': slope
                 }
             elif signal == 'EXIT_LONG' and current_long is not None:
+                trade_counter += 1
                 pnl_pct = ((price - current_long['entry_price']) / current_long['entry_price']) * 100
                 pnl_usd = price - current_long['entry_price']
                 trades.append({
+                    'trade_num': trade_counter,
                     'type': 'LONG',
                     'entry_idx': current_long['entry_idx'],
                     'exit_idx': idx,
@@ -344,9 +347,11 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
                     'entry_slope': slope
                 }
             elif signal == 'EXIT_SHORT' and current_short is not None:
+                trade_counter += 1
                 pnl_pct = ((current_short['entry_price'] - price) / current_short['entry_price']) * 100
                 pnl_usd = current_short['entry_price'] - price
                 trades.append({
+                    'trade_num': trade_counter,
                     'type': 'SHORT',
                     'entry_idx': current_short['entry_idx'],
                     'exit_idx': idx,
@@ -414,33 +419,42 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
                 row=1, col=1
             )
 
-        # Add exit signals (circles) with trade summaries
+        # Add exit signals (circles) with trade numbers and PnL
         if exit_long_mask.any():
             exit_long_dates = dates[exit_long_mask]
             exit_long_prices = df.loc[exit_long_mask, 'high'] * 1.002
 
-            # Create hover text with trade summaries
+            # Create hover text and annotations with trade numbers
             hover_text = []
+            annotations = []
+
             for idx in df.index[exit_long_mask]:
                 # Find matching trade
                 matching_trade = next((t for t in trades if t['exit_idx'] == idx and t['type'] == 'LONG'), None)
                 if matching_trade:
+                    # Simplified hover text - just PnL info
                     pnl_color = 'green' if matching_trade['pnl_pct'] > 0 else 'red'
                     text = (
-                        f"<b style='font-size:16px'>LONG EXIT - PnL: {matching_trade['pnl_pct']:+.2f}%</b><br><br>" +
-                        f"<b>Entry:</b><br>" +
-                        f"  Time: {matching_trade['entry_time']}<br>" +
-                        f"  Price: ${matching_trade['entry_price']:,.2f}<br>" +
-                        f"  Slope: {matching_trade['entry_slope']:.2f}<br><br>" +
-                        f"<b>Exit:</b><br>" +
-                        f"  Time: {matching_trade['exit_time']}<br>" +
-                        f"  Price: ${matching_trade['exit_price']:,.2f}<br>" +
-                        f"  Slope: {matching_trade['exit_slope']:.2f}<br><br>" +
-                        f"<b style='font-size:14px; color:{pnl_color}'>PnL: ${matching_trade['pnl_usd']:+,.2f} ({matching_trade['pnl_pct']:+.2f}%)</b>"
+                        f"<b>Trade #{matching_trade['trade_num']} - LONG</b><br>" +
+                        f"PnL: <b style='color:{pnl_color}'>${matching_trade['pnl_usd']:+,.2f} ({matching_trade['pnl_pct']:+.2f}%)</b><br>" +
+                        f"Entry: ${matching_trade['entry_price']:,.2f}<br>" +
+                        f"Exit: ${matching_trade['exit_price']:,.2f}"
                     )
+                    hover_text.append(text)
+
+                    # Add text annotation with trade number
+                    annotations.append(dict(
+                        x=dates[idx],
+                        y=df.loc[idx, 'high'] * 1.008,
+                        text=f"#{matching_trade['trade_num']}",
+                        showarrow=False,
+                        font=dict(size=8, color='lime'),
+                        xref='x',
+                        yref='y'
+                    ))
                 else:
-                    text = f"<b>LONG EXIT</b><br>Time: {dates[idx]}<br>Price: ${df.loc[idx, 'close']:,.2f}"
-                hover_text.append(text)
+                    text = f"<b>LONG EXIT</b><br>Price: ${df.loc[idx, 'close']:,.2f}"
+                    hover_text.append(text)
 
             fig.add_trace(
                 go.Scatter(
@@ -455,32 +469,45 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
                 row=1, col=1
             )
 
+            # Add annotations to the figure
+            for ann in annotations:
+                fig.add_annotation(ann, row=1, col=1)
+
         if exit_short_mask.any():
             exit_short_dates = dates[exit_short_mask]
             exit_short_prices = df.loc[exit_short_mask, 'low'] * 0.998
 
-            # Create hover text with trade summaries
+            # Create hover text and annotations with trade numbers
             hover_text = []
+            annotations = []
+
             for idx in df.index[exit_short_mask]:
                 # Find matching trade
                 matching_trade = next((t for t in trades if t['exit_idx'] == idx and t['type'] == 'SHORT'), None)
                 if matching_trade:
+                    # Simplified hover text - just PnL info
                     pnl_color = 'green' if matching_trade['pnl_pct'] > 0 else 'red'
                     text = (
-                        f"<b style='font-size:16px'>SHORT EXIT - PnL: {matching_trade['pnl_pct']:+.2f}%</b><br><br>" +
-                        f"<b>Entry:</b><br>" +
-                        f"  Time: {matching_trade['entry_time']}<br>" +
-                        f"  Price: ${matching_trade['entry_price']:,.2f}<br>" +
-                        f"  Slope: {matching_trade['entry_slope']:.2f}<br><br>" +
-                        f"<b>Exit:</b><br>" +
-                        f"  Time: {matching_trade['exit_time']}<br>" +
-                        f"  Price: ${matching_trade['exit_price']:,.2f}<br>" +
-                        f"  Slope: {matching_trade['exit_slope']:.2f}<br><br>" +
-                        f"<b style='font-size:14px; color:{pnl_color}'>PnL: ${matching_trade['pnl_usd']:+,.2f} ({matching_trade['pnl_pct']:+.2f}%)</b>"
+                        f"<b>Trade #{matching_trade['trade_num']} - SHORT</b><br>" +
+                        f"PnL: <b style='color:{pnl_color}'>${matching_trade['pnl_usd']:+,.2f} ({matching_trade['pnl_pct']:+.2f}%)</b><br>" +
+                        f"Entry: ${matching_trade['entry_price']:,.2f}<br>" +
+                        f"Exit: ${matching_trade['exit_price']:,.2f}"
                     )
+                    hover_text.append(text)
+
+                    # Add text annotation with trade number
+                    annotations.append(dict(
+                        x=dates[idx],
+                        y=df.loc[idx, 'low'] * 0.992,
+                        text=f"#{matching_trade['trade_num']}",
+                        showarrow=False,
+                        font=dict(size=8, color='red'),
+                        xref='x',
+                        yref='y'
+                    ))
                 else:
-                    text = f"<b>SHORT EXIT</b><br>Time: {dates[idx]}<br>Price: ${df.loc[idx, 'close']:,.2f}"
-                hover_text.append(text)
+                    text = f"<b>SHORT EXIT</b><br>Price: ${df.loc[idx, 'close']:,.2f}"
+                    hover_text.append(text)
 
             fig.add_trace(
                 go.Scatter(
@@ -494,6 +521,10 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
                 ),
                 row=1, col=1
             )
+
+            # Add annotations to the figure
+            for ann in annotations:
+                fig.add_annotation(ann, row=1, col=1)
 
     # 2. Volume bars
     colors = ['#26a69a' if close >= open_ else '#ef5350'
@@ -596,16 +627,17 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
             'color': current_color
         })
 
-        # Plot each segment
+        # Plot each segment - group them as one legend item
         for idx, segment in enumerate(segments):
             fig.add_trace(
                 go.Scatter(
                     x=segment['x'],
                     y=segment['y'],
-                    name='Slope' if idx == 0 else None,
+                    name='Slope',
+                    legendgroup='slope',  # Group all segments together
                     line=dict(color=segment['color'], width=2.5),
                     mode='lines',
-                    showlegend=idx == 0,
+                    showlegend=idx == 0,  # Only show first segment in legend
                     hovertemplate='Slope: %{y:.2f}<extra></extra>'
                 ),
                 row=3, col=1
