@@ -510,31 +510,67 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
         row=2, col=1
     )
 
-    # 3. EMA Slope
+    # 3. EMA Slope with conditional coloring
     if 'slope' in df.columns:
-        # Color the slope based on NTZ
-        slope_color = []
-        for slope in df['slope']:
-            if pd.isna(slope):
-                slope_color.append('gray')
-            elif slope > ntz_threshold:
-                slope_color.append('#26a69a')
-            elif slope < -ntz_threshold:
-                slope_color.append('#ef5350')
-            else:
-                slope_color.append('#baa79b')
+        # Create separate traces for each zone with different colors and fills
 
-        fig.add_trace(
-            go.Scatter(
-                x=dates,
-                y=df['slope'],
-                name='Slope',
-                line=dict(color='white', width=2),
-                fill='tozeroy',
-                fillcolor='rgba(255,255,255,0.1)'
-            ),
-            row=3, col=1
-        )
+        # Bullish zone (slope > NTZ): Bright green with green background
+        bullish_mask = df['slope'] > ntz_threshold
+        if bullish_mask.any():
+            bullish_dates = dates[bullish_mask]
+            bullish_slope = df['slope'][bullish_mask]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=bullish_dates,
+                    y=bullish_slope,
+                    name='Bullish',
+                    line=dict(color='#00ff00', width=3),  # Bright green
+                    fill='tozeroy',
+                    fillcolor='rgba(0, 255, 0, 0.2)',  # Green shadow
+                    mode='lines',
+                    showlegend=True
+                ),
+                row=3, col=1
+            )
+
+        # Bearish zone (slope < -NTZ): Bright red with red background
+        bearish_mask = df['slope'] < -ntz_threshold
+        if bearish_mask.any():
+            bearish_dates = dates[bearish_mask]
+            bearish_slope = df['slope'][bearish_mask]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=bearish_dates,
+                    y=bearish_slope,
+                    name='Bearish',
+                    line=dict(color='#ff0000', width=3),  # Bright red
+                    fill='tozeroy',
+                    fillcolor='rgba(255, 0, 0, 0.2)',  # Red shadow
+                    mode='lines',
+                    showlegend=True
+                ),
+                row=3, col=1
+            )
+
+        # No Trade Zone: Black line
+        ntz_mask = (df['slope'] >= -ntz_threshold) & (df['slope'] <= ntz_threshold)
+        if ntz_mask.any():
+            ntz_dates = dates[ntz_mask]
+            ntz_slope = df['slope'][ntz_mask]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=ntz_dates,
+                    y=ntz_slope,
+                    name='No Trade Zone',
+                    line=dict(color='#000000', width=2),  # Black
+                    mode='lines',
+                    showlegend=True
+                ),
+                row=3, col=1
+            )
 
         # Add NTZ threshold lines as scatter traces (works better with subplots)
         fig.add_trace(
