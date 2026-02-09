@@ -1,15 +1,37 @@
 """
 Optimized query functions for OHLCV data operations.
+Supports both SQLite and PostgreSQL.
 """
 
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
 import sqlite3
 
+# Try to import PostgreSQL support
+try:
+    import psycopg2
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
 
-def insert_ohlcv_batch(conn: sqlite3.Connection, records: List[Tuple]) -> int:
+
+def _get_placeholder(conn) -> str:
+    """Get the correct parameter placeholder for the database type."""
+    if POSTGRES_AVAILABLE and isinstance(conn, psycopg2.extensions.connection):
+        return '%s'
+    return '?'
+
+
+def _is_postgres(conn) -> bool:
+    """Check if connection is PostgreSQL."""
+    if POSTGRES_AVAILABLE:
+        return isinstance(conn, psycopg2.extensions.connection)
+    return False
+
+
+def insert_ohlcv_batch(conn, records: List[Tuple]) -> int:
     """
     Bulk insert OHLCV records with transaction batching.
-    Uses INSERT OR IGNORE to handle duplicates efficiently.
+    Uses INSERT OR IGNORE (SQLite) or ON CONFLICT DO NOTHING (PostgreSQL).
 
     Args:
         conn: Database connection
@@ -20,13 +42,27 @@ def insert_ohlcv_batch(conn: sqlite3.Connection, records: List[Tuple]) -> int:
         Number of records inserted (excluding duplicates)
     """
     cursor = conn.cursor()
+    placeholder = _get_placeholder(conn)
 
-    insert_query = """
-    INSERT OR IGNORE INTO ohlcv
-    (timestamp, open, high, low, close, volume, quote_volume, trades,
-     taker_buy_base, taker_buy_quote)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """
+    if _is_postgres(conn):
+        # PostgreSQL syntax
+        insert_query = f"""
+        INSERT INTO ohlcv
+        (timestamp, open, high, low, close, volume, quote_volume, trades,
+         taker_buy_base, taker_buy_quote)
+        VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder},
+                {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+        ON CONFLICT (timestamp) DO NOTHING
+        """
+    else:
+        # SQLite syntax
+        insert_query = f"""
+        INSERT OR IGNORE INTO ohlcv
+        (timestamp, open, high, low, close, volume, quote_volume, trades,
+         taker_buy_base, taker_buy_quote)
+        VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder},
+                {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+        """
 
     cursor.executemany(insert_query, records)
     inserted_count = cursor.rowcount
@@ -34,7 +70,7 @@ def insert_ohlcv_batch(conn: sqlite3.Connection, records: List[Tuple]) -> int:
     return inserted_count
 
 
-def get_latest_timestamp(conn: sqlite3.Connection, symbol: str = None) -> Optional[int]:
+def get_latest_timestamp(conn, symbol: str = None) -> Optional[int]:
     """
     Get the most recent timestamp in the database.
     Used for resume capability.
@@ -55,7 +91,7 @@ def get_latest_timestamp(conn: sqlite3.Connection, symbol: str = None) -> Option
     return result[0] if result and result[0] is not None else None
 
 
-def get_earliest_timestamp(conn: sqlite3.Connection) -> Optional[int]:
+def get_earliest_timestamp(conn) -> Optional[int]:
     """
     Get the earliest timestamp in the database.
 
@@ -74,7 +110,7 @@ def get_earliest_timestamp(conn: sqlite3.Connection) -> Optional[int]:
     return result[0] if result and result[0] is not None else None
 
 
-def count_records(conn: sqlite3.Connection) -> int:
+def count_records(conn) -> int:
     """
     Count total number of OHLCV records.
 
@@ -94,7 +130,7 @@ def count_records(conn: sqlite3.Connection) -> int:
 
 
 def query_ohlcv_range(
-    conn: sqlite3.Connection,
+    conn,
     start_timestamp: int,
     end_timestamp: int
 ) -> List[Tuple]:
@@ -111,12 +147,13 @@ def query_ohlcv_range(
         List of OHLCV records as tuples
     """
     cursor = conn.cursor()
+    placeholder = _get_placeholder(conn)
 
-    query = """
+    query = f"""
     SELECT timestamp, open, high, low, close, volume, quote_volume,
            trades, taker_buy_base, taker_buy_quote
     FROM ohlcv
-    WHERE timestamp >= ? AND timestamp <= ?
+    WHERE timestamp >= {placeholder} AND timestamp <= {placeholder}
     ORDER BY timestamp ASC
     """
 
@@ -124,7 +161,7 @@ def query_ohlcv_range(
     return cursor.fetchall()
 
 
-def find_gaps(conn: sqlite3.Connection, interval_ms: int = 60000) -> List[Tuple[int, int]]:
+def find_gaps(conn, interval_ms: int = 60000) -> List[Tuple[int, int]]:
     """
     Find gaps in the time series (missing minutes).
 
@@ -157,7 +194,7 @@ def find_gaps(conn: sqlite3.Connection, interval_ms: int = 60000) -> List[Tuple[
 
 
 def insert_fetch_metadata(
-    conn: sqlite3.Connection,
+    conn,
     symbol: str,
     interval: str,
     start_timestamp: int,
@@ -181,21 +218,26 @@ def insert_fetch_metadata(
         ID of inserted metadata record
     """
     cursor = conn.cursor()
+    placeholder = _get_placeholder(conn)
 
-    query = """
+    query = f"""
     INSERT INTO fetch_metadata
     (symbol, interval, start_timestamp, end_timestamp, records_fetched, status)
-    VALUES (?, ?, ?, ?, ?, ?)
+    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
     """
 
     cursor.execute(query, (symbol, interval, start_timestamp, end_timestamp,
                           records_fetched, status))
 
-    return cursor.lastrowid
+    if _is_postgres(conn):
+        # PostgreSQL doesn't have lastrowid, need to use RETURNING
+        return cursor.fetchone()[0] if cursor.rowcount > 0 else None
+    else:
+        return cursor.lastrowid
 
 
 def get_last_fetch_metadata(
-    conn: sqlite3.Connection,
+    conn,
     symbol: str,
     interval: str
 ) -> Optional[Tuple]:
@@ -211,12 +253,13 @@ def get_last_fetch_metadata(
         Metadata tuple or None
     """
     cursor = conn.cursor()
+    placeholder = _get_placeholder(conn)
 
-    query = """
+    query = f"""
     SELECT id, symbol, interval, start_timestamp, end_timestamp,
            records_fetched, status, created_at, updated_at
     FROM fetch_metadata
-    WHERE symbol = ? AND interval = ?
+    WHERE symbol = {placeholder} AND interval = {placeholder}
     ORDER BY created_at DESC
     LIMIT 1
     """
