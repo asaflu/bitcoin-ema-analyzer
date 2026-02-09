@@ -536,20 +536,57 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
             row=3, col=1
         )
 
-        # Add NTZ lines
-        fig.add_hline(y=ntz_threshold, line_dash="dash", line_color="#4bdb62", row=3, col=1)
-        fig.add_hline(y=-ntz_threshold, line_dash="dash", line_color="#f42222", row=3, col=1)
-        fig.add_hline(y=0, line_dash="solid", line_color="white", opacity=0.3, row=3, col=1)
+        # Add NTZ threshold lines as scatter traces (works better with subplots)
+        fig.add_trace(
+            go.Scatter(
+                x=[dates.iloc[0], dates.iloc[-1]],
+                y=[ntz_threshold, ntz_threshold],
+                name='NTZ Upper',
+                line=dict(color='#4bdb62', width=2, dash='dash'),
+                showlegend=True,
+                hoverinfo='skip'
+            ),
+            row=3, col=1
+        )
 
-        # Add shaded NTZ region
-        fig.add_hrect(
+        fig.add_trace(
+            go.Scatter(
+                x=[dates.iloc[0], dates.iloc[-1]],
+                y=[-ntz_threshold, -ntz_threshold],
+                name='NTZ Lower',
+                line=dict(color='#f42222', width=2, dash='dash'),
+                showlegend=True,
+                hoverinfo='skip'
+            ),
+            row=3, col=1
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=[dates.iloc[0], dates.iloc[-1]],
+                y=[0, 0],
+                name='Zero Line',
+                line=dict(color='white', width=1, dash='solid'),
+                opacity=0.3,
+                showlegend=False,
+                hoverinfo='skip'
+            ),
+            row=3, col=1
+        )
+
+        # Add shaded NTZ region using shapes (works with subplots)
+        fig.add_shape(
+            type="rect",
+            xref="x3",
+            yref="y3",
+            x0=dates.iloc[0],
+            x1=dates.iloc[-1],
             y0=-ntz_threshold,
             y1=ntz_threshold,
             fillcolor="gray",
-            opacity=0.1,
+            opacity=0.15,
             layer="below",
-            line_width=0,
-            row=3, col=1
+            line_width=0
         )
 
     # Update layout
