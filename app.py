@@ -8,6 +8,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import sys
+import os
 
 from database.connection import db
 from database.queries import query_ohlcv_range, get_latest_timestamp, get_earliest_timestamp
@@ -78,6 +79,26 @@ def main():
     # Header
     st.markdown('<div class="main-header">📈 Bitcoin EMA Slope Analyzer</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Interactive multi-timeframe chart with EMA Slope indicator</div>', unsafe_allow_html=True)
+
+    # Check if database exists (important for Streamlit Cloud deployment)
+    if not os.path.exists('data/bitcoin_ohlcv.db'):
+        st.error("⚠️ Database not found!")
+        st.info("""
+        **This deployment doesn't include the database.**
+
+        To use this app:
+        1. Run locally with your own database
+        2. Or set up automated data fetching in Streamlit Cloud
+
+        For local use with full data:
+        - Clone the repository
+        - Run `python scripts/init_database.py`
+        - Run `python scripts/fetch_historical_data.py`
+        - Run `streamlit run app.py`
+
+        Local URL: http://localhost:8501
+        """)
+        return
 
     # Get database range
     try:
