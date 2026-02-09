@@ -1,7 +1,16 @@
+# Core dependencies
 requests>=2.31.0
 pandas>=2.1.0
 numpy>=1.24.0
 python-dateutil>=2.8.2
+
+# Streamlit and visualization
+streamlit>=1.28.0
+plotly>=5.18.0
+
+# Data fetching and processing
 tqdm>=4.66.0
-pytest>=7.4.0
 retry>=0.9.2
+
+# Testing (optional for deployment)
+pytest>=7.4.0
