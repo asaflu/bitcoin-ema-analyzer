@@ -1,0 +1,581 @@
+"""
+Interactive charting with Plotly
+"""
+
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import pandas as pd
+import numpy as np
+
+
+def create_candlestick_chart(df, title="Bitcoin Price Chart", show_volume=True):
+    """
+    Create interactive candlestick chart with Plotly.
+
+    Args:
+        df: DataFrame with OHLCV data and timestamp
+        title: Chart title
+        show_volume: Whether to show volume subplot
+
+    Returns:
+        Plotly figure
+    """
+    # Create figure with secondary y-axis for volume
+    if show_volume:
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.03,
+            row_heights=[0.7, 0.3],
+            subplot_titles=(title, "Volume")
+        )
+    else:
+        fig = go.Figure()
+
+    # Convert timestamp to datetime if needed
+    if 'timestamp' in df.columns:
+        dates = pd.to_datetime(df['timestamp'], unit='ms')
+    else:
+        dates = df.index
+
+    # Add candlestick trace
+    candlestick = go.Candlestick(
+        x=dates,
+        open=df['open'],
+        high=df['high'],
+        low=df['low'],
+        close=df['close'],
+        name='OHLC',
+        increasing_line_color='#26a69a',
+        decreasing_line_color='#ef5350'
+    )
+
+    if show_volume:
+        fig.add_trace(candlestick, row=1, col=1)
+
+        # Add volume bars
+        colors = ['#26a69a' if close >= open_ else '#ef5350'
+                  for close, open_ in zip(df['close'], df['open'])]
+
+        volume = go.Bar(
+            x=dates,
+            y=df['volume'],
+            name='Volume',
+            marker_color=colors,
+            showlegend=False
+        )
+        fig.add_trace(volume, row=2, col=1)
+    else:
+        fig.add_trace(candlestick)
+
+    # Update layout
+    fig.update_layout(
+        title=title,
+        yaxis_title='Price (USD)',
+        xaxis_rangeslider_visible=False,
+        template='plotly_dark',
+        height=800,
+        hovermode='x unified'
+    )
+
+    if show_volume:
+        fig.update_yaxes(title_text="Price (USD)", row=1, col=1)
+        fig.update_yaxes(title_text="Volume (BTC)", row=2, col=1)
+
+    return fig
+
+
+def add_ema_slope_indicator(fig, df, row=1):
+    """
+    Add EMA Slope indicator to existing chart.
+
+    Args:
+        fig: Plotly figure
+        df: DataFrame with EMA slope data (must have 'slope', 'ma' columns)
+        row: Which row to add the indicator to
+
+    Returns:
+        Updated figure
+    """
+    if 'timestamp' in df.columns:
+        dates = pd.to_datetime(df['timestamp'], unit='ms')
+    else:
+        dates = df.index
+
+    # Add EMA line
+    if 'ma' in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=df['ma'],
+                name='EMA',
+                line=dict(color='yellow', width=1),
+                opacity=0.7
+            ),
+            row=row, col=1
+        )
+
+    return fig
+
+
+def create_ema_slope_chart(df, ntz_threshold=10, title="EMA Slope Indicator"):
+    """
+    Create EMA Slope indicator chart.
+
+    Args:
+        df: DataFrame with slope, acceleration data
+        ntz_threshold: No Trade Zone threshold
+        title: Chart title
+
+    Returns:
+        Plotly figure
+    """
+    if 'timestamp' in df.columns:
+        dates = pd.to_datetime(df['timestamp'], unit='ms')
+    else:
+        dates = df.index
+
+    fig = go.Figure()
+
+    # Add slope line with color based on value
+    slope_colors = []
+    for slope in df['slope']:
+        if pd.isna(slope):
+            slope_colors.append('gray')
+        elif slope > ntz_threshold:
+            slope_colors.append('#26a69a')  # Bullish - green
+        elif slope < -ntz_threshold:
+            slope_colors.append('#ef5350')  # Bearish - red
+        else:
+            slope_colors.append('#baa79b')  # NTZ - gray
+
+    # Plot slope
+    fig.add_trace(go.Scatter(
+        x=dates,
+        y=df['slope'],
+        name='Slope',
+        line=dict(color='white', width=2),
+        fill='tozeroy',
+        fillcolor='rgba(255,255,255,0.1)'
+    ))
+
+    # Add NTZ threshold lines
+    fig.add_hline(
+        y=ntz_threshold,
+        line_dash="dash",
+        line_color="#4bdb62",
+        annotation_text="NTZ Upper",
+        annotation_position="right"
+    )
+    fig.add_hline(
+        y=-ntz_threshold,
+        line_dash="dash",
+        line_color="#f42222",
+        annotation_text="NTZ Lower",
+        annotation_position="right"
+    )
+    fig.add_hline(
+        y=0,
+        line_dash="solid",
+        line_color="white",
+        opacity=0.5
+    )
+
+    # Add acceleration if available
+    if 'acceleration' in df.columns:
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=df['acceleration'],
+            name='Acceleration',
+            mode='markers',
+            marker=dict(
+                size=4,
+                color=df['acceleration'],
+                colorscale='Viridis',
+                showscale=True,
+                colorbar=dict(title="Accel")
+            ),
+            yaxis='y2'
+        ))
+
+    # Update layout
+    fig.update_layout(
+        title=title,
+        yaxis_title='Slope',
+        xaxis_title='Time',
+        template='plotly_dark',
+        height=400,
+        hovermode='x unified',
+        yaxis2=dict(
+            title='Acceleration',
+            overlaying='y',
+            side='right'
+        )
+    )
+
+    # Add shaded NTZ region
+    fig.add_hrect(
+        y0=-ntz_threshold,
+        y1=ntz_threshold,
+        fillcolor="gray",
+        opacity=0.1,
+        layer="below",
+        line_width=0
+    )
+
+    return fig
+
+
+def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
+    """
+    Create combined chart with price and EMA slope indicator.
+
+    Args:
+        df: DataFrame with OHLCV and EMA slope data
+        ntz_threshold: No Trade Zone threshold
+        title: Chart title
+
+    Returns:
+        Plotly figure with 3 subplots
+    """
+    # Create subplots: candlestick, volume, slope
+    fig = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.02,
+        row_heights=[0.5, 0.2, 0.3],
+        subplot_titles=(title, "Volume", "EMA Slope"),
+        specs=[[{"secondary_y": False}],
+               [{"secondary_y": False}],
+               [{"secondary_y": False}]]
+    )
+
+    # Properly convert timestamps to datetime
+    if 'timestamp' in df.columns:
+        # Ensure timestamp is treated as milliseconds
+        if pd.api.types.is_integer_dtype(df['timestamp']):
+            dates = pd.to_datetime(df['timestamp'], unit='ms')
+        elif pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+            dates = pd.to_datetime(df['timestamp'])
+        else:
+            dates = pd.to_datetime(df['timestamp'])
+    else:
+        if pd.api.types.is_datetime64_any_dtype(df.index):
+            dates = df.index
+        else:
+            dates = pd.to_datetime(df.index, unit='ms')
+
+    # 1. Candlestick chart
+    fig.add_trace(
+        go.Candlestick(
+            x=dates,
+            open=df['open'],
+            high=df['high'],
+            low=df['low'],
+            close=df['close'],
+            name='Price',
+            increasing_line_color='#26a69a',
+            decreasing_line_color='#ef5350'
+        ),
+        row=1, col=1
+    )
+
+    # Add EMA line
+    if 'ma' in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=df['ma'],
+                name=f'EMA',
+                line=dict(color='yellow', width=1.5),
+                opacity=0.8
+            ),
+            row=1, col=1
+        )
+
+    # Process trading signals and calculate PnL
+    if 'signal' in df.columns:
+        # Separate entry and exit signals
+        buy_mask = df['signal'] == 'BUY'
+        sell_mask = df['signal'] == 'SELL'
+        exit_long_mask = df['signal'] == 'EXIT_LONG'
+        exit_short_mask = df['signal'] == 'EXIT_SHORT'
+
+        # Match trades and calculate PnL
+        trades = []
+        current_long = None
+        current_short = None
+
+        for idx in df.index:
+            signal = df.loc[idx, 'signal']
+            timestamp = dates[idx]
+            price = df.loc[idx, 'close']
+            slope = df.loc[idx, 'slope']
+
+            if signal == 'BUY' and current_long is None:
+                current_long = {
+                    'entry_idx': idx,
+                    'entry_time': timestamp,
+                    'entry_price': price,
+                    'entry_slope': slope
+                }
+            elif signal == 'EXIT_LONG' and current_long is not None:
+                pnl_pct = ((price - current_long['entry_price']) / current_long['entry_price']) * 100
+                pnl_usd = price - current_long['entry_price']
+                trades.append({
+                    'type': 'LONG',
+                    'entry_idx': current_long['entry_idx'],
+                    'exit_idx': idx,
+                    'entry_time': current_long['entry_time'],
+                    'exit_time': timestamp,
+                    'entry_price': current_long['entry_price'],
+                    'exit_price': price,
+                    'entry_slope': current_long['entry_slope'],
+                    'exit_slope': slope,
+                    'pnl_pct': pnl_pct,
+                    'pnl_usd': pnl_usd
+                })
+                current_long = None
+            elif signal == 'SELL' and current_short is None:
+                current_short = {
+                    'entry_idx': idx,
+                    'entry_time': timestamp,
+                    'entry_price': price,
+                    'entry_slope': slope
+                }
+            elif signal == 'EXIT_SHORT' and current_short is not None:
+                pnl_pct = ((current_short['entry_price'] - price) / current_short['entry_price']) * 100
+                pnl_usd = current_short['entry_price'] - price
+                trades.append({
+                    'type': 'SHORT',
+                    'entry_idx': current_short['entry_idx'],
+                    'exit_idx': idx,
+                    'entry_time': current_short['entry_time'],
+                    'exit_time': timestamp,
+                    'entry_price': current_short['entry_price'],
+                    'exit_price': price,
+                    'entry_slope': current_short['entry_slope'],
+                    'exit_slope': slope,
+                    'pnl_pct': pnl_pct,
+                    'pnl_usd': pnl_usd
+                })
+                current_short = None
+
+        # Add entry signals (triangles)
+        if buy_mask.any():
+            buy_dates_signal = dates[buy_mask]
+            buy_prices = df.loc[buy_mask, 'low'] * 0.995
+            buy_slopes = df.loc[buy_mask, 'slope']
+
+            hover_text = [
+                f"<b>LONG ENTRY</b><br>" +
+                f"Time: {dt}<br>" +
+                f"Price: ${price:,.2f}<br>" +
+                f"Slope: {slope:.2f}"
+                for dt, price, slope in zip(buy_dates_signal, df.loc[buy_mask, 'close'], buy_slopes)
+            ]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=buy_dates_signal,
+                    y=buy_prices,
+                    mode='markers',
+                    name='Long Entry',
+                    marker=dict(symbol='triangle-up', size=14, color='lime', line=dict(width=1, color='darkgreen')),
+                    hovertext=hover_text,
+                    hoverinfo='text'
+                ),
+                row=1, col=1
+            )
+
+        if sell_mask.any():
+            sell_dates_signal = dates[sell_mask]
+            sell_prices = df.loc[sell_mask, 'high'] * 1.005
+            sell_slopes = df.loc[sell_mask, 'slope']
+
+            hover_text = [
+                f"<b>SHORT ENTRY</b><br>" +
+                f"Time: {dt}<br>" +
+                f"Price: ${price:,.2f}<br>" +
+                f"Slope: {slope:.2f}"
+                for dt, price, slope in zip(sell_dates_signal, df.loc[sell_mask, 'close'], sell_slopes)
+            ]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=sell_dates_signal,
+                    y=sell_prices,
+                    mode='markers',
+                    name='Short Entry',
+                    marker=dict(symbol='triangle-down', size=14, color='red', line=dict(width=1, color='darkred')),
+                    hovertext=hover_text,
+                    hoverinfo='text'
+                ),
+                row=1, col=1
+            )
+
+        # Add exit signals (circles) with trade summaries
+        if exit_long_mask.any():
+            exit_long_dates = dates[exit_long_mask]
+            exit_long_prices = df.loc[exit_long_mask, 'high'] * 1.002
+
+            # Create hover text with trade summaries
+            hover_text = []
+            for idx in df.index[exit_long_mask]:
+                # Find matching trade
+                matching_trade = next((t for t in trades if t['exit_idx'] == idx and t['type'] == 'LONG'), None)
+                if matching_trade:
+                    pnl_color = 'green' if matching_trade['pnl_pct'] > 0 else 'red'
+                    text = (
+                        f"<b style='font-size:16px'>LONG EXIT - PnL: {matching_trade['pnl_pct']:+.2f}%</b><br><br>" +
+                        f"<b>Entry:</b><br>" +
+                        f"  Time: {matching_trade['entry_time']}<br>" +
+                        f"  Price: ${matching_trade['entry_price']:,.2f}<br>" +
+                        f"  Slope: {matching_trade['entry_slope']:.2f}<br><br>" +
+                        f"<b>Exit:</b><br>" +
+                        f"  Time: {matching_trade['exit_time']}<br>" +
+                        f"  Price: ${matching_trade['exit_price']:,.2f}<br>" +
+                        f"  Slope: {matching_trade['exit_slope']:.2f}<br><br>" +
+                        f"<b style='font-size:14px; color:{pnl_color}'>PnL: ${matching_trade['pnl_usd']:+,.2f} ({matching_trade['pnl_pct']:+.2f}%)</b>"
+                    )
+                else:
+                    text = f"<b>LONG EXIT</b><br>Time: {dates[idx]}<br>Price: ${df.loc[idx, 'close']:,.2f}"
+                hover_text.append(text)
+
+            fig.add_trace(
+                go.Scatter(
+                    x=exit_long_dates,
+                    y=exit_long_prices,
+                    mode='markers',
+                    name='Long Exit',
+                    marker=dict(symbol='circle', size=12, color='lime', line=dict(width=2, color='darkgreen')),
+                    hovertext=hover_text,
+                    hoverinfo='text'
+                ),
+                row=1, col=1
+            )
+
+        if exit_short_mask.any():
+            exit_short_dates = dates[exit_short_mask]
+            exit_short_prices = df.loc[exit_short_mask, 'low'] * 0.998
+
+            # Create hover text with trade summaries
+            hover_text = []
+            for idx in df.index[exit_short_mask]:
+                # Find matching trade
+                matching_trade = next((t for t in trades if t['exit_idx'] == idx and t['type'] == 'SHORT'), None)
+                if matching_trade:
+                    pnl_color = 'green' if matching_trade['pnl_pct'] > 0 else 'red'
+                    text = (
+                        f"<b style='font-size:16px'>SHORT EXIT - PnL: {matching_trade['pnl_pct']:+.2f}%</b><br><br>" +
+                        f"<b>Entry:</b><br>" +
+                        f"  Time: {matching_trade['entry_time']}<br>" +
+                        f"  Price: ${matching_trade['entry_price']:,.2f}<br>" +
+                        f"  Slope: {matching_trade['entry_slope']:.2f}<br><br>" +
+                        f"<b>Exit:</b><br>" +
+                        f"  Time: {matching_trade['exit_time']}<br>" +
+                        f"  Price: ${matching_trade['exit_price']:,.2f}<br>" +
+                        f"  Slope: {matching_trade['exit_slope']:.2f}<br><br>" +
+                        f"<b style='font-size:14px; color:{pnl_color}'>PnL: ${matching_trade['pnl_usd']:+,.2f} ({matching_trade['pnl_pct']:+.2f}%)</b>"
+                    )
+                else:
+                    text = f"<b>SHORT EXIT</b><br>Time: {dates[idx]}<br>Price: ${df.loc[idx, 'close']:,.2f}"
+                hover_text.append(text)
+
+            fig.add_trace(
+                go.Scatter(
+                    x=exit_short_dates,
+                    y=exit_short_prices,
+                    mode='markers',
+                    name='Short Exit',
+                    marker=dict(symbol='circle', size=12, color='red', line=dict(width=2, color='darkred')),
+                    hovertext=hover_text,
+                    hoverinfo='text'
+                ),
+                row=1, col=1
+            )
+
+    # 2. Volume bars
+    colors = ['#26a69a' if close >= open_ else '#ef5350'
+              for close, open_ in zip(df['close'], df['open'])]
+
+    fig.add_trace(
+        go.Bar(
+            x=dates,
+            y=df['volume'],
+            name='Volume',
+            marker_color=colors,
+            showlegend=False
+        ),
+        row=2, col=1
+    )
+
+    # 3. EMA Slope
+    if 'slope' in df.columns:
+        # Color the slope based on NTZ
+        slope_color = []
+        for slope in df['slope']:
+            if pd.isna(slope):
+                slope_color.append('gray')
+            elif slope > ntz_threshold:
+                slope_color.append('#26a69a')
+            elif slope < -ntz_threshold:
+                slope_color.append('#ef5350')
+            else:
+                slope_color.append('#baa79b')
+
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=df['slope'],
+                name='Slope',
+                line=dict(color='white', width=2),
+                fill='tozeroy',
+                fillcolor='rgba(255,255,255,0.1)'
+            ),
+            row=3, col=1
+        )
+
+        # Add NTZ lines
+        fig.add_hline(y=ntz_threshold, line_dash="dash", line_color="#4bdb62", row=3, col=1)
+        fig.add_hline(y=-ntz_threshold, line_dash="dash", line_color="#f42222", row=3, col=1)
+        fig.add_hline(y=0, line_dash="solid", line_color="white", opacity=0.3, row=3, col=1)
+
+        # Add shaded NTZ region
+        fig.add_hrect(
+            y0=-ntz_threshold,
+            y1=ntz_threshold,
+            fillcolor="gray",
+            opacity=0.1,
+            layer="below",
+            line_width=0,
+            row=3, col=1
+        )
+
+    # Update layout
+    fig.update_layout(
+        template='plotly_dark',
+        height=1000,
+        hovermode='x unified',
+        showlegend=True,
+        xaxis_rangeslider_visible=False,
+        # Ensure proper datetime formatting
+        xaxis=dict(
+            type='date',
+            rangeslider=dict(visible=False)
+        ),
+        xaxis2=dict(type='date'),
+        xaxis3=dict(type='date')
+    )
+
+    # Update axes with proper formatting
+    fig.update_yaxes(title_text="Price (USD)", row=1, col=1)
+    fig.update_yaxes(title_text="Volume (BTC)", row=2, col=1)
+    fig.update_yaxes(title_text="Slope", row=3, col=1)
+
+    # Ensure all x-axes are synchronized and properly formatted
+    fig.update_xaxes(title_text="Time", row=3, col=1, type='date')
+    fig.update_xaxes(type='date', row=1, col=1)
+    fig.update_xaxes(type='date', row=2, col=1)
+
+    return fig
