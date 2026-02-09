@@ -108,9 +108,15 @@ def calculate_ema_slope(df, smooth_bars=3, ma_length=120, ntz_threshold=10,
     result['ma_diff_min'] = result['ma_diff'].rolling(window=lookback, min_periods=1).min()
     ma_range = result['ma_diff_max'] - result['ma_diff_min']
 
-    # Avoid division by zero
+    # Avoid division by zero - use a minimum threshold
     ma_range = ma_range.replace(0, np.nan)
+
+    # Calculate normalized slope
     result['slope'] = 100 * result['ma_diff'] / ma_range
+
+    # Clamp slope to reasonable bounds (-100 to 100) and handle inf/nan
+    result['slope'] = result['slope'].replace([np.inf, -np.inf], np.nan)
+    result['slope'] = result['slope'].clip(lower=-100, upper=100)
 
     # Calculate acceleration
     slope_change = abs(result['slope'] - result['slope'].shift(1)) * smooth_bars * 2
@@ -161,9 +167,10 @@ def calculate_ema_slope(df, smooth_bars=3, ma_length=120, ntz_threshold=10,
     # Clean up intermediate columns
     result = result.drop(['ma_diff_max', 'ma_diff_min'], axis=1)
 
-    # Forward fill NaN values in slope (for initial periods)
-    result['slope'] = result['slope'].bfill().fillna(0)
-    result['acceleration'] = result['acceleration'].fillna(0)
+    # Handle NaN values in slope
+    # First forward fill, then backward fill, then fill remaining with 0
+    result['slope'] = result['slope'].ffill().bfill().fillna(0)
+    result['acceleration'] = result['acceleration'].replace([np.inf, -np.inf], np.nan).fillna(0)
     result['in_ntz'] = result['in_ntz'].fillna(True)
 
     return result
