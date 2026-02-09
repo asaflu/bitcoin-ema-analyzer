@@ -644,7 +644,20 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
     # Update axes with proper formatting
     fig.update_yaxes(title_text="Price (USD)", row=1, col=1)
     fig.update_yaxes(title_text="Volume (BTC)", row=2, col=1)
-    fig.update_yaxes(title_text="Slope", row=3, col=1)
+
+    # Slope axis - auto-range based on actual data
+    if 'slope' in df.columns:
+        slope_min = df['slope'].min()
+        slope_max = df['slope'].max()
+        # Add 10% padding for visual clarity
+        padding = (slope_max - slope_min) * 0.1
+        fig.update_yaxes(
+            title_text="Slope",
+            range=[slope_min - padding, slope_max + padding],
+            row=3, col=1
+        )
+    else:
+        fig.update_yaxes(title_text="Slope", row=3, col=1)
 
     # Ensure all x-axes are synchronized and properly formatted
     fig.update_xaxes(title_text="Time", row=3, col=1, type='date')
