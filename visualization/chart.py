@@ -611,6 +611,61 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
                 row=3, col=1
             )
 
+        # Add acceleration circles (from Pine Script)
+        # plot(maAcc, 'MA Accel', color = c_Acc, style=plot.style_circles, linewidth=4)
+        if 'acceleration' in df.columns:
+            # Pine Script logic for acceleration colors
+            accel_threshold = 20  # accTh from Pine Script
+            accel_colors = []
+            accel_sizes = []
+
+            for i in range(len(df)):
+                accel = df['acceleration'].iloc[i]
+                close_price = df['close'].iloc[i]
+                open_price = df['open'].iloc[i]
+
+                # Calculate transparency (trspa from Pine Script)
+                # trspa = maAcc < accTh ? 92 : (100 - maAcc *1.5)
+                if accel < accel_threshold:
+                    opacity = 0.08  # 92% transparent
+                else:
+                    opacity = min(1.0, (100 - accel * 1.5) / 100)
+                    opacity = max(0.08, opacity)  # At least 8% visible
+
+                # Color logic from Pine Script
+                # c_Acc = maAcc > 0.3 * maAcc and close > open ? cyan : maAcc > 0.3 * maAcc and close < open ? pink : gray
+                if accel > 0.3 and close_price > open_price:
+                    # Bullish acceleration - cyan
+                    accel_colors.append(f'rgba(10, 246, 255, {opacity})')
+                elif accel > 0.3 and close_price < open_price:
+                    # Bearish acceleration - pink/magenta
+                    accel_colors.append(f'rgba(239, 2, 77, {opacity})')
+                else:
+                    # Low acceleration - gray
+                    accel_colors.append(f'rgba(160, 160, 160, {opacity})')
+
+                # Size based on acceleration magnitude
+                accel_sizes.append(min(12, 4 + accel / 10))
+
+            fig.add_trace(
+                go.Scatter(
+                    x=dates,
+                    y=df['acceleration'],
+                    name='Acceleration',
+                    mode='markers',
+                    marker=dict(
+                        size=accel_sizes,
+                        color=accel_colors,
+                        symbol='circle',
+                        line=dict(width=0)
+                    ),
+                    showlegend=True,
+                    hovertemplate='Acceleration: %{y:.2f}<extra></extra>',
+                    yaxis='y4'  # Secondary y-axis for acceleration
+                ),
+                row=3, col=1
+            )
+
         # Add NTZ threshold lines as scatter traces (works better with subplots)
         fig.add_trace(
             go.Scatter(
@@ -677,7 +732,15 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
             rangeslider=dict(visible=False)
         ),
         xaxis2=dict(type='date'),
-        xaxis3=dict(type='date')
+        xaxis3=dict(type='date'),
+        # Secondary y-axis for acceleration (overlaying slope)
+        yaxis4=dict(
+            title='Acceleration',
+            overlaying='y3',
+            side='right',
+            showgrid=False,
+            range=[0, 60]  # Acceleration typically 0-50 range
+        )
     )
 
     # Update axes with proper formatting
