@@ -448,7 +448,7 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
                         y=df.loc[idx, 'high'] * 1.008,
                         text=f"#{matching_trade['trade_num']}",
                         showarrow=False,
-                        font=dict(size=8, color='lime'),
+                        font=dict(size=10, color='black', family='Arial Black'),
                         xref='x',
                         yref='y'
                     ))
@@ -501,7 +501,7 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
                         y=df.loc[idx, 'low'] * 0.992,
                         text=f"#{matching_trade['trade_num']}",
                         showarrow=False,
-                        font=dict(size=8, color='red'),
+                        font=dict(size=10, color='black', family='Arial Black'),
                         xref='x',
                         yref='y'
                     ))
@@ -638,10 +638,26 @@ def create_combined_chart(df, ntz_threshold=10, title="Bitcoin with EMA Slope"):
                     line=dict(color=segment['color'], width=2.5),
                     mode='lines',
                     showlegend=idx == 0,  # Only show first segment in legend
-                    hovertemplate='Slope: %{y:.2f}<extra></extra>'
+                    hoverinfo='skip'  # Skip hover on colored segments
                 ),
                 row=3, col=1
             )
+
+        # Add invisible overlay for hover data (single slope value)
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=df['slope'],
+                name='Slope',
+                legendgroup='slope',
+                line=dict(width=0),  # Invisible
+                mode='lines',
+                showlegend=False,
+                hovertemplate='Slope: %{y:.2f}<extra></extra>',
+                opacity=0
+            ),
+            row=3, col=1
+        )
 
         # Add acceleration circles (from Pine Script)
         # plot(maAcc, 'MA Accel', color = c_Acc, style=plot.style_circles, linewidth=4)
